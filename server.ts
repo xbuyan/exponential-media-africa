@@ -8,6 +8,9 @@ import { z } from 'zod';
 import { PUBLIC_ARTICLE_SLUGS, PUBLIC_SERVICE_SLUGS, PUBLIC_WORK_SLUGS } from './src/data/sitemapSlugs.ts';
 import { VERIFIED_CONTACT } from './src/data/seedData.ts';
 import { getGeminiClient } from './src/lib/gemini.ts';
+import { describeError, logEvent } from './src/lib/log.ts';
+import { createFatalErrorHandler, installFatalErrorHandlers } from './src/lib/process-safety.ts';
+import { createReadinessGate } from './src/lib/runtime-readiness.ts';
 import { AuthorizationError, isRoleRecord, mayProvisionRole, mayRemoveActiveAdmin, resolveVerifiedPrincipal, roleAllows, type AppRole, type VerifiedPrincipal } from './src/lib/admin-auth.ts';
 import {
   createRateLimiter,
@@ -93,8 +96,29 @@ let adminServicesPromise: Promise<{
   FieldValue: typeof import('firebase-admin/firestore').FieldValue;
 } | null> | null = null;
 
-async function getAdminServices() {
+let adminCredential: { getAccessToken(): Promise<unknown> } | null = null;
+
+// A failed initialization is remembered briefly so unauthenticated callers (for example /api/ready)
+// cannot make the server retry it, and log the failure, on every request.
+const ADMIN_INIT_RETRY_MS = 15_000;
+let adminInitFailedAt = 0;
+
+// The Firestore client creates its gRPC stub lazily and, when that fails (for example because no
+// application default credentials exist), rethrows the failure from a detached promise. Node reports
+// that as an unhandled rejection and the process exits, whatever the calling route catches. So no
+// Firestore call may start unless credentials can currently be resolved.
+const credentialReadiness = createReadinessGate({
+  probe: async () => {
+    if (!adminCredential) throw new Error('Admin credential is not initialized.');
+    await adminCredential.getAccessToken();
+  },
+  onTransition: (ready, detail) =>
+    logEvent(ready ? 'info' : 'error', ready ? 'credentials.ready' : 'credentials.unavailable', detail),
+});
+
+async function initAdminServices() {
   if (!adminServicesPromise) {
+    if (adminInitFailedAt && Date.now() - adminInitFailedAt < ADMIN_INIT_RETRY_MS) return null;
     adminServicesPromise = (async () => {
       try {
         const [{ applicationDefault, getApps, initializeApp }, { getAuth }, { FieldValue, getFirestore }] =
@@ -106,18 +130,30 @@ async function getAdminServices() {
               ? { projectId: firebaseProjectId }
               : { credential: applicationDefault(), projectId: firebaseProjectId },
           );
+        adminCredential = app.options.credential ?? null;
+        adminInitFailedAt = 0;
         return {
           auth: getAuth(app),
           db: getFirestore(app, firestoreDatabaseId),
           FieldValue,
         };
-      } catch {
+      } catch (error) {
+        logEvent('error', 'admin.init_failed', describeError(error));
+        adminInitFailedAt = Date.now();
         adminServicesPromise = null;
         return null;
       }
     })();
   }
   return adminServicesPromise;
+}
+
+/** Firebase Admin services, or null when they cannot be used safely right now (callers answer 503). */
+async function getAdminServices() {
+  const services = await initAdminServices();
+  if (!services) return null;
+  if (!emulatorMode && !(await credentialReadiness.isReady())) return null;
+  return services;
 }
 
 async function resolvePrincipal(req: Request): Promise<VerifiedPrincipal> {
@@ -179,8 +215,16 @@ async function startServer() {
   app.use('/api', jsonBodySecurityGuard);
   app.use(malformedJsonErrorHandler);
 
+  // Liveness: the process is up. Deliberately checks no dependency.
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', service: 'exponential-marketing-agency' });
+  });
+
+  // Readiness: Firebase-backed API routes can currently be served. Static pages do not depend on this.
+  app.get('/api/ready', async (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const ready = emulatorMode || (Boolean(await initAdminServices()) && (await credentialReadiness.isReady()));
+    return res.status(ready ? 200 : 503).json({ status: ready ? 'ready' : 'unavailable' });
   });
 
   app.get(
@@ -772,9 +816,23 @@ ${allPublicRoutes
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`Exponential Marketing Agency server listening on port ${PORT}`);
+    // Surface a credentials fault in the logs at boot instead of at the first visitor request.
+    if (!emulatorMode) void initAdminServices().then(() => credentialReadiness.isReady());
   });
+
+  installFatalErrorHandlers(
+    process,
+    createFatalErrorHandler({
+      closeServer: (done) => {
+        server.close(() => done());
+        server.closeIdleConnections?.();
+      },
+      log: logEvent,
+      exit: (code) => process.exit(code),
+    }),
+  );
 }
 
 startServer().catch((err) => {
