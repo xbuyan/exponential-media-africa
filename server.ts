@@ -585,7 +585,10 @@ async function startServer() {
 
       const data = parsed.data;
       if (data.websiteHoneypot && data.websiteHoneypot.length > 0) {
-        return res.status(400).json({ error: 'Submission could not be accepted. Please check the form and try again.' });
+        logEvent('warn', 'inquiry_honeypot_rejected', {});
+        return res.status(400).json({
+          error: `Submission could not be accepted. Please check the form and try again, or contact ${VERIFIED_CONTACT.email} or ${VERIFIED_CONTACT.primaryPhone}.`,
+        });
       }
 
       const idempotencyKey = idempotencyHeaderSchema.safeParse(req.get('Idempotency-Key'));
@@ -602,7 +605,7 @@ async function startServer() {
         requiredServices: data.requiredServices.map(sanitizePlainText),
         estimatedBudget: sanitizePlainText(data.estimatedBudget),
         projectTimeline: sanitizePlainText(data.projectTimeline),
-        projectDescription: sanitizePlainText(data.projectDescription),
+        projectDescription: sanitizeMultilineText(data.projectDescription),
         consentAccepted: true as const,
         websiteHoneypot: '',
       };
@@ -629,6 +632,7 @@ async function startServer() {
 
       const store = await getInquiryStore();
       if (!store) {
+        logEvent('error', 'inquiry_store_unavailable', {});
         return res.status(503).json({
           error: `Online submission is temporarily unavailable. Your entries remain in this form; contact ${VERIFIED_CONTACT.email} or ${VERIFIED_CONTACT.primaryPhone}.`,
         });
@@ -706,7 +710,8 @@ async function startServer() {
         return res.status(503).json({
           error: `We could not confirm that your inquiry was recorded. Your entries remain in this form; contact ${VERIFIED_CONTACT.email} or ${VERIFIED_CONTACT.primaryPhone}.`,
         });
-      } catch {
+      } catch (error) {
+        logEvent('error', 'inquiry_store_failed', { error: describeError(error) });
         return res.status(503).json({
           error: `We could not confirm that your inquiry was recorded. Your entries remain in this form; contact ${VERIFIED_CONTACT.email} or ${VERIFIED_CONTACT.primaryPhone}.`,
         });
