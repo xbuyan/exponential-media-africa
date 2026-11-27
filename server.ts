@@ -35,7 +35,7 @@ const firebaseConfig = JSON.parse(
 const firebaseProjectId = process.env.FIREBASE_PROJECT_ID?.trim() || firebaseConfig.projectId;
 const firestoreDatabaseId = process.env.FIREBASE_FIRESTORE_DATABASE_ID?.trim() || firebaseConfig.firestoreDatabaseId;
 const isProduction = process.env.NODE_ENV === 'production';
-const PORT = 3000;
+const PORT = Number(process.env.PORT || 3000);
 const INQUIRY_IDEMPOTENCY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 const EMULATOR_PROJECT_ID = 'demo-exponential-local';
