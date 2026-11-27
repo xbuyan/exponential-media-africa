@@ -249,16 +249,53 @@ test('sanitizeTestimonialRecord strips HTML and blocks unsafe videoUrl protocols
   assert.equal(safeVideo.videoUrl, 'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
 });
 
-test('sanitizers keep text that merely contains < or > but is not markup', () => {
-  assert.equal(sanitizePlainText('Budget <5000 KES, timeline 2 months'), 'Budget <5000 KES, timeline 2 months');
-  assert.equal(sanitizePlainText('Between <5 and >3 options'), 'Between <5 and >3 options');
-  assert.equal(sanitizePlainText('Reach is < 2M people'), 'Reach is < 2M people');
-  assert.equal(sanitizeMultilineText('Line one <5\n\nLine two >3'), 'Line one <5\n\nLine two >3');
-});
-
 test('sanitizers still strip real markup and unterminated tag fragments', () => {
   assert.equal(sanitizePlainText('Hi <b>there</b>'), 'Hi there');
   assert.equal(sanitizePlainText('<img src=x onerror=alert(1)'), '');
   assert.equal(sanitizePlainText('a <!-- hidden --> b'), 'a  b');
   assert.equal(sanitizePlainText('<<script>script>alert(1)</</script>script>'), 'alert(1)');
+});
+
+test('sanitizers preserve comparison expressions and angle-bracket prose', () => {
+  assert.equal(
+    sanitizePlainText('Budget <5000 KES, timeline 2 months'),
+    'Budget <5000 KES, timeline 2 months'
+  );
+  assert.equal(sanitizePlainText('Between <5 and >3 options'), 'Between <5 and >3 options');
+  assert.equal(sanitizePlainText('Reach is < 2M people'), 'Reach is < 2M people');
+  assert.equal(sanitizePlainText('ratings <4.5 and >2.0'), 'ratings <4.5 and >2.0');
+  assert.equal(sanitizePlainText('Budget<5000 and reach>2000000'), 'Budget<5000 and reach>2000000');
+  assert.equal(
+    sanitizePlainText('Read <https://example.com/path> for details'),
+    'Read <https://example.com/path> for details'
+  );
+  assert.equal(sanitizePlainText('Reply to <mailto:hi@example.com>'), 'Reply to <mailto:hi@example.com>');
+  assert.equal(sanitizeMultilineText('Line one <5\n\nLine two >3'), 'Line one <5\n\nLine two >3');
+});
+
+test('sanitizers strip valid opening and closing tags but keep their text', () => {
+  assert.equal(sanitizePlainText('<b>Bold</b>'), 'Bold');
+  assert.equal(sanitizePlainText('<p>Hello</p> <br/> <em>world</em>'), 'Hello  world');
+  assert.equal(sanitizePlainText('<script>alert(1)</script>Hello'), 'alert(1)Hello');
+  assert.equal(sanitizePlainText('<img src="x" onerror="alert(1)">copy'), 'copy');
+  assert.equal(sanitizeMultilineText('<h2>Heading</h2>\n\nBody <i>copy</i>'), 'Heading\n\nBody copy');
+  assert.equal(sanitizePlainText('<my-widget data-id="1">x</my-widget>'), 'x');
+});
+
+test('sanitizers remove HTML comments, nested markup, and incomplete tag fragments', () => {
+  assert.equal(sanitizePlainText('a <!-- hidden --> b'), 'a  b');
+  assert.equal(sanitizePlainText('a<!--<script>alert(1)</script>-->b'), 'ab');
+  assert.equal(sanitizePlainText('before <img src=x onerror=alert(1)'), 'before');
+  assert.equal(sanitizePlainText('before <!DOCTYPE html'), 'before');
+  assert.equal(sanitizePlainText('before <'), 'before <');
+  assert.equal(sanitizePlainText('before <a<a<a'), 'before');
+  // Stripping a tag can expose a comment; the result must already be stable.
+  const exposedComment = '<!<a>--x-->';
+  assert.equal(sanitizePlainText(exposedComment), '');
+  assert.equal(
+    sanitizePlainText(sanitizePlainText(exposedComment)),
+    sanitizePlainText(exposedComment)
+  );
+  assert.equal(sanitizePlainText('<<script>script>alert(1)</</script>script>'), 'alert(1)');
+  assert.equal(sanitizePlainText('Hello <b><i>bold</i></b> world'), 'Hello bold world');
 });
