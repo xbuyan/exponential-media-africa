@@ -2,6 +2,10 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "rewrites": [
     {
+      "source": "/api/:path*",
+      "destination": "https://ema-api-1039489365112.europe-west2.run.app/api/:path*"
+    },
+    {
       "source": "/((?!api/|assets/|robots\\.txt|sitemap\\.xml).*)",
       "destination": "/index.html"
     }
