@@ -21,7 +21,7 @@ export function createFatalErrorHandler(options: FatalErrorHandlerOptions) {
   let shuttingDown = false;
 
   return function handleFatal(kind: FatalKind, error: unknown): void {
-    options.log('error', 'process.fatal', { kind, ...describeError(error) });
+    options.log('error', 'process.fatal', { ...describeError(error), kind });
 
     if (shuttingDown) {
       // A second failure while draining: stop waiting.

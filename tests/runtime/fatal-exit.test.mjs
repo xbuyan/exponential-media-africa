@@ -44,7 +44,7 @@ test('an unhandled rejection is logged and the process exits with code 1', async
   assert.equal(result.signal, null);
   const fatal = jsonLines(result.output).find((entry) => entry.event === 'process.fatal');
   assert.ok(fatal, `expected a process.fatal log line, got:\n${result.output}`);
-  assert.equal(fatal.kind, 'unhandledRejection');
+  assert.equal(fatal.fields.kind, 'unhandledRejection');
   assert.ok(!result.output.includes('abc123secret'), 'credential-shaped text must be redacted');
 });
 
@@ -52,7 +52,7 @@ test('an uncaught exception is logged and the process exits with code 1', async 
   const result = await runFixture('throw', 2_000);
   assert.equal(result.code, 1);
   const fatal = jsonLines(result.output).find((entry) => entry.event === 'process.fatal');
-  assert.equal(fatal?.kind, 'uncaughtException');
+  assert.equal(fatal?.fields?.kind, 'uncaughtException');
 });
 
 test('a connection that never finishes cannot keep the process alive past the drain limit', async () => {
