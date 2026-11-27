@@ -578,6 +578,12 @@ async function startServer() {
     async (req, res) => {
       const parsed = inquiryPayloadSchema.safeParse(req.body);
       if (!parsed.success) {
+        if (parsed.error.issues.some((issue) => issue.path[0] === 'websiteHoneypot')) {
+          logEvent('warn', 'inquiry_honeypot_rejected', {});
+          return res.status(400).json({
+            error: `Submission could not be accepted. Please check the form and try again, or contact ${VERIFIED_CONTACT.email} or ${VERIFIED_CONTACT.primaryPhone}.`,
+          });
+        }
         return res.status(400).json({
           error: parsed.error.issues[0]?.message || 'Invalid inquiry submission.',
         });
