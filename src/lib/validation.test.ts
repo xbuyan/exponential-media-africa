@@ -248,3 +248,17 @@ test('sanitizeTestimonialRecord strips HTML and blocks unsafe videoUrl protocols
   });
   assert.equal(safeVideo.videoUrl, 'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
 });
+
+test('sanitizers keep text that merely contains < or > but is not markup', () => {
+  assert.equal(sanitizePlainText('Budget <5000 KES, timeline 2 months'), 'Budget <5000 KES, timeline 2 months');
+  assert.equal(sanitizePlainText('Between <5 and >3 options'), 'Between <5 and >3 options');
+  assert.equal(sanitizePlainText('Reach is < 2M people'), 'Reach is < 2M people');
+  assert.equal(sanitizeMultilineText('Line one <5\n\nLine two >3'), 'Line one <5\n\nLine two >3');
+});
+
+test('sanitizers still strip real markup and unterminated tag fragments', () => {
+  assert.equal(sanitizePlainText('Hi <b>there</b>'), 'Hi there');
+  assert.equal(sanitizePlainText('<img src=x onerror=alert(1)'), '');
+  assert.equal(sanitizePlainText('a <!-- hidden --> b'), 'a  b');
+  assert.equal(sanitizePlainText('<<script>script>alert(1)</</script>script>'), 'alert(1)');
+});
