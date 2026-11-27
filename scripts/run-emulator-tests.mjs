@@ -44,6 +44,7 @@ const SUITES = [
   { name: 'admin-auth', file: 'tests/admin-auth.test.mjs', needsServer: false },
   { name: 'server-auth', file: 'tests/emulator/server-auth.test.mjs', needsServer: true },
   { name: 'inquiry', file: 'tests/emulator/inquiry.test.mjs', needsServer: true },
+  { name: 'inquiry-integrity', file: 'tests/emulator/inquiry-integrity.test.mjs', needsServer: true },
   { name: 'rate-limit', file: 'tests/emulator/rate-limit.test.mjs', needsServer: true },
   { name: 'provisioning', file: 'tests/emulator/provisioning.test.mjs', needsServer: true },
   { name: 'firestore-rules', file: 'tests/emulator/firestore-rules.test.mjs', needsServer: true },
