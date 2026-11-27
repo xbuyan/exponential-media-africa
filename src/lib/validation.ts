@@ -18,25 +18,56 @@ const CONTROL_AND_BIDI_CHARS_MULTILINE =
 
 const FORBIDDEN_OBJECT_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
-function stripHtmlTagsMultiPass(input: string): string {
-  let prev = input;
-  let next = prev.replace(/<[^<>]*>/g, '');
-  while (next !== prev) {
-    prev = next;
-    next = prev.replace(/<[^<>]*>/g, '');
+/**
+ * HTML markup stripping.
+ *
+ * A `<` only begins markup when it looks like a real tag: `<` or `</` followed
+ * by a tag name, or `<!` followed by a letter for declarations such as
+ * `<!DOCTYPE html>`. A tag name is ASCII letters, digits or hyphens (so
+ * `<my-widget>` works) and must be followed by whitespace, `/`, `>` or the end
+ * of the input. That keeps angle-bracket prose such as `<https://example.com>`
+ * and `<mailto:hi@example.com>` intact, and numeric comparisons (`Budget <5000`,
+ * `Between <5 and >3`) never match.
+ *
+ * A `<` followed directly by a letter is necessarily ambiguous (`a<b` vs. an
+ * incomplete `<b>`) and is treated as markup, matching the trailing-fragment
+ * behavior below.
+ *
+ * This is text normalization for fields rendered as plain text. It is not, by
+ * itself, an XSS boundary: rendered output still needs context-appropriate
+ * escaping, and URLs still go through isSafeHttpOrLocalUrl
+ * / isSafeExternalHttpUrl below.
+ */
+const HTML_COMMENT = /<!--[\s\S]*?(?:-->|$)/g;
+// One pattern handles complete tags and a trailing fragment without a closing
+// `>` (e.g. `<img src=x onerror=...`), so both share the same tag grammar.
+const HTML_MARKUP = /<(?:!|\/?)[a-zA-Z][a-zA-Z0-9-]*(?=[\s/>]|$)[^<>]*(?:>|$)/g;
+
+function stripHtmlMarkup(input: string): string {
+  // Comments are removed before tags in each pass so their contents cannot be
+  // reinterpreted as tags. Either removal can expose the other: `<a>` inside
+  // `<!<a>--x-->` leaves a comment behind, while a comment can hide part of a
+  // tag. Repeat both until the text stops changing.
+  let current = input;
+  let next = current.replace(HTML_COMMENT, '').replace(HTML_MARKUP, '');
+  // Every changing pass removes at least two characters, so this always
+  // terminates.
+  while (next !== current) {
+    current = next;
+    next = current.replace(HTML_COMMENT, '').replace(HTML_MARKUP, '');
   }
-  return next.replace(/<[^<>]*$/g, '');
+  return next;
 }
 
 export function sanitizePlainText(input: string): string {
-  return stripHtmlTagsMultiPass(String(input ?? ''))
+  return stripHtmlMarkup(String(input ?? ''))
     .replace(/[\t\n\r]/g, ' ')
     .replace(CONTROL_AND_BIDI_CHARS_SINGLELINE, '')
     .trim();
 }
 
 export function sanitizeMultilineText(input: string): string {
-  return stripHtmlTagsMultiPass(String(input ?? '').replace(/\r\n?/g, '\n'))
+  return stripHtmlMarkup(String(input ?? '').replace(/\r\n?/g, '\n'))
     .replace(/\t/g, ' ')
     .replace(CONTROL_AND_BIDI_CHARS_MULTILINE, '')
     .trim();
